@@ -30,6 +30,33 @@
 
     <build>
         <plugins>
+            <!-- Fails the build early with a clear message if the JDK or Maven is too old. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>enforce-requirements</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[17,)</version>
+                                    <message>Stockroom needs JDK 17 or newer. Install one and set JAVA_HOME to it.</message>
+                                </requireJavaVersion>
+                                <requireMavenVersion>
+                                    <version>[3.8,)</version>
+                                    <message>Stockroom needs Maven 3.8 or newer. Use the bundled wrapper: mvnw (or ./mvnw).</message>
+                                </requireMavenVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
