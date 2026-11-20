@@ -1,0 +1,15 @@
+# Build output
+target/
+out/
+*.class
+
+# Runtime data (inventory CSV)
+data/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+
+# OS files
+.DS_Store
