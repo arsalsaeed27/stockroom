@@ -5,7 +5,7 @@ A Java Swing inventory management system styled as a stockroom ledger: add, view
 ## Team
 
 | Name         | Reg. No. |
-|--------------|----------|
+| ------------ | -------- |
 | Arsal Saeed  | 506676   |
 | Laiba Rehman | 505099   |
 
@@ -20,11 +20,11 @@ A Java Swing inventory management system styled as a stockroom ledger: add, view
 
 ## Requirements
 
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| JDK         | 17 or newer | Must be a JDK, not just a JRE. `JAVA_HOME` must point to it. |
-| Maven       | none needed | The bundled Maven Wrapper (`mvnw` / `mvnw.cmd`) downloads Maven 3.9.9 on first run. |
-| Internet    | first build only | Maven downloads JUnit 5 and the build plugins into `~/.m2`. |
+| Requirement | Version          | Notes                                                                               |
+| ----------- | ---------------- | ----------------------------------------------------------------------------------- |
+| JDK         | 17 or newer      | Must be a JDK, not just a JRE. `JAVA_HOME` must point to it.                        |
+| Maven       | none needed      | The bundled Maven Wrapper (`mvnw` / `mvnw.cmd`) downloads Maven 3.9.9 on first run. |
+| Internet    | first build only | Maven downloads JUnit 5 and the build plugins into `~/.m2`.                         |
 
 Everything else is in the repository: the dependencies are declared in `pom.xml`, and the fonts
 (Space Grotesk and IBM Plex Mono, with their OFL licences) are bundled in `src/main/resources/fonts`.
