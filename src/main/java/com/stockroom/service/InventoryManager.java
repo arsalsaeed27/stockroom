@@ -34,6 +34,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public class InventoryManager {
 
+    /** Placeholder ID that no item ever has, since IDs start at 1. */
+    private static final int NO_ID = 0;
+
     /** All items, keyed by ID, in the order they were added. */
     private final Map<Integer, Item> items = new LinkedHashMap<>();
 
@@ -65,13 +68,62 @@ public class InventoryManager {
         String name = InputValidator.validateName(rawName);
         int quantity = InputValidator.parseQuantity(rawQuantity);
         int threshold = InputValidator.parseThreshold(rawThreshold);
-        if (isNameTaken(name)) {
+        if (isNameTaken(name, NO_ID)) {
             throw new DuplicateItemException("An item named '" + name + "' already exists.");
         }
         Item item = new Item(nextId++, name, quantity, threshold);
         items.put(item.getId(), item);
         notifyListeners();
         return item;
+    }
+
+    /**
+     * Validates raw input and replaces the name, quantity and threshold of
+     * an existing item. Keeping the item's own name, even with different
+     * letter case, is allowed.
+     *
+     * <p>Nothing changes unless every field is valid.</p>
+     *
+     * @param id           the ID of the item to update
+     * @param rawName      the new item name as typed
+     * @param rawQuantity  the new quantity as typed
+     * @param rawThreshold the new low-stock threshold as typed; blank means the default
+     * @return the updated item
+     * @throws ItemNotFoundException  if no item has this ID
+     * @throws InvalidItemException   if any field fails validation
+     * @throws DuplicateItemException if a different item already has this name,
+     *                                ignoring case
+     */
+    public Item updateItem(int id, String rawName, String rawQuantity, String rawThreshold)
+            throws ItemNotFoundException, InvalidItemException, DuplicateItemException {
+        Item item = getById(id);
+        String name = InputValidator.validateName(rawName);
+        int quantity = InputValidator.parseQuantity(rawQuantity);
+        int threshold = InputValidator.parseThreshold(rawThreshold);
+        if (isNameTaken(name, id)) {
+            throw new DuplicateItemException("An item named '" + name + "' already exists.");
+        }
+        item.setName(name);
+        item.setQuantity(quantity);
+        item.setThreshold(threshold);
+        notifyListeners();
+        return item;
+    }
+
+    /**
+     * Removes an item from the inventory. Its ID is not reused.
+     *
+     * @param id the ID of the item to delete
+     * @return the item that was removed
+     * @throws ItemNotFoundException if no item has this ID
+     */
+    public Item deleteItem(int id) throws ItemNotFoundException {
+        Item removed = items.remove(id);
+        if (removed == null) {
+            throw notFound(id);
+        }
+        notifyListeners();
+        return removed;
     }
 
     /**
@@ -103,8 +155,7 @@ public class InventoryManager {
     public Item getById(int id) throws ItemNotFoundException {
         Item item = items.get(id);
         if (item == null) {
-            throw new ItemNotFoundException(
-                    String.format("No item with ID #%04d exists.", id));
+            throw notFound(id);
         }
         return item;
     }
@@ -191,17 +242,29 @@ public class InventoryManager {
     }
 
     /**
-     * Checks whether any item already has a name, ignoring case.
+     * Checks whether another item already has a name, ignoring case.
      *
-     * @param name the trimmed name to check
-     * @return {@code true} if an item with this name exists
+     * @param name      the trimmed name to check
+     * @param excludeId the ID of an item to skip, so an item may keep its own
+     *                  name; {@link #NO_ID} to check every item
+     * @return {@code true} if an item other than {@code excludeId} has this name
      */
-    private boolean isNameTaken(String name) {
+    private boolean isNameTaken(String name, int excludeId) {
         for (Item item : items.values()) {
-            if (item.getName().equalsIgnoreCase(name)) {
+            if (item.getId() != excludeId && item.getName().equalsIgnoreCase(name)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Builds the exception reported when an ID is not in the inventory.
+     *
+     * @param id the ID that was not found
+     * @return an exception with a message such as "No item with ID #0007 exists."
+     */
+    private static ItemNotFoundException notFound(int id) {
+        return new ItemNotFoundException(String.format("No item with ID #%04d exists.", id));
     }
 }
