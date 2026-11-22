@@ -1,5 +1,6 @@
 package com.stockroom.ui;
 
+import com.stockroom.persistence.CsvInventoryRepository;
 import com.stockroom.service.InventoryManager;
 import com.stockroom.ui.theme.Theme;
 
@@ -39,13 +40,16 @@ public final class Main {
     }
 
     /**
-     * Creates the inventory and the main window, shows the window and puts
-     * the cursor in the Item name field. Must be called on the event
+     * Creates the inventory, backed by {@code data/inventory.csv}, and the
+     * main window; shows the window, loads the saved inventory into it and
+     * puts the cursor in the Item name field. Must be called on the event
      * dispatch thread.
      */
     private static void createAndShowWindow() {
-        InventoryGUI gui = new InventoryGUI(new InventoryManager());
+        InventoryManager manager = new InventoryManager(new CsvInventoryRepository());
+        InventoryGUI gui = new InventoryGUI(manager);
         gui.setVisible(true);
+        gui.loadInventory();
         gui.focusNewEntry();
     }
 }

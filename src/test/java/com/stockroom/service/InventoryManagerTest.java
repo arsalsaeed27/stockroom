@@ -5,11 +5,15 @@ import com.stockroom.exception.InventoryException;
 import com.stockroom.exception.ItemNotFoundException;
 import com.stockroom.model.Item;
 import com.stockroom.model.StockStatus;
+import com.stockroom.persistence.CsvInventoryRepository;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -190,17 +194,49 @@ class InventoryManagerTest {
     }
 
     /**
-     * TC11: saving the inventory to CSV and loading it back gives the same items.
+     * TC11: the inventory is saved to CSV automatically after each change,
+     * and loading the file into a new manager gives the same items and the
+     * same next ID.
      *
-     * <p>Skipped until the persistence layer exists.</p>
+     * <p>Names contain commas and double quotes to check escaping. An item is
+     * deleted so the next ID is above the highest remaining ID; the restored
+     * manager must not reuse the deleted ID.</p>
+     *
+     * @param dir a temporary folder created and removed by JUnit
+     * @throws InventoryException if a setup item is rejected
+     * @throws IOException        if the CSV file cannot be written or read
      */
     @Test
-    @Disabled("Persistence layer (CsvInventoryRepository) not implemented yet")
     @DisplayName("TC11 – CSV save/load round-trip")
-    void tc11CsvRoundTrip() {
-        // TODO: implement once CsvInventoryRepository exists. Save items whose names
-        //  contain commas and quotes to a @TempDir file, load them into a new manager,
-        //  and assert IDs, names, quantities, thresholds and the next ID all match.
+    void tc11CsvRoundTrip(@TempDir Path dir) throws InventoryException, IOException {
+        Path file = dir.resolve("data").resolve("inventory.csv");
+        InventoryManager original = new InventoryManager(new CsvInventoryRepository(file));
+        original.add("Hex Bolts", "25", "");
+        original.add("Nuts, hex", "3", "10");
+        original.add("6\" Ruler, \"steel\"", "0", "2");
+        original.add("To be voided", "1", "");
+        original.deleteItem(4);
+
+        assertTrue(Files.exists(file), "the file should be saved automatically");
+        assertTrue(original.getLastSavedAt().isPresent());
+
+        InventoryManager restored = new InventoryManager(new CsvInventoryRepository(file));
+        restored.load();
+
+        List<Item> before = original.getAll();
+        List<Item> after = restored.getAll();
+        assertEquals(before.size(), after.size());
+        for (int i = 0; i < before.size(); i++) {
+            Item expected = before.get(i);
+            Item actual = after.get(i);
+            assertEquals(expected.getId(), actual.getId());
+            assertEquals(expected.getName(), actual.getName());
+            assertEquals(expected.getQuantity(), actual.getQuantity());
+            assertEquals(expected.getThreshold(), actual.getThreshold());
+            assertEquals(expected.getStatus(), actual.getStatus());
+        }
+        assertEquals(5, restored.add("Washers", "40", "").getId(),
+                "the deleted ID 4 must not be reused after a restart");
     }
 
     /**

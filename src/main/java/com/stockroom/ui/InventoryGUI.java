@@ -40,7 +40,9 @@ import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -158,6 +160,9 @@ public class InventoryGUI extends JFrame {
 
     /** Path of the data file, shown on the right of the status bar. */
     private static final String DATA_FILE = "data/inventory.csv";
+
+    /** Format of the time in the save status, for example "23:41". */
+    private static final DateTimeFormatter SAVE_TIME = DateTimeFormatter.ofPattern("HH:mm");
 
     /** Helper text under the threshold field, explaining how status is derived. */
     private static final String THRESHOLD_HELPER = "Status → LOW when qty ≤ threshold, OUT at 0";
@@ -989,6 +994,55 @@ public class InventoryGUI extends JFrame {
     }
 
     /**
+     * Loads the saved inventory into the window and shows the result in the
+     * status bar. If the data file cannot be read, an error toast explains
+     * that changes will not be saved this session, so the file is left
+     * untouched. Call after the window is shown.
+     */
+    public void loadInventory() {
+        try {
+            manager.load();
+            setSaveStatus("LOADED " + LocalDateTime.now().format(SAVE_TIME), Theme.MUTED);
+        } catch (IOException e) {
+            setSaveStatus("LOAD FAILED · NOT SAVING", Theme.STATUS_OUT);
+            toast.showError("COULD NOT READ " + DATA_FILE + " · CHANGES WILL NOT BE SAVED");
+        }
+    }
+
+    /**
+     * Updates the save status in the status bar from the manager: SAVED with
+     * the time of the last save, or SAVE FAILED in red. Leaves the text alone
+     * when no save has happened yet.
+     */
+    private void refreshSaveStatus() {
+        if (manager.getLastSaveError().isPresent()) {
+            setSaveStatus("SAVE FAILED · CHANGES KEPT UNTIL NEXT SAVE", Theme.STATUS_OUT);
+        } else {
+            manager.getLastSavedAt().ifPresent(this::showSavedAt);
+        }
+    }
+
+    /**
+     * Shows "SAVED hh:mm" in the status bar.
+     *
+     * @param time when the inventory was saved
+     */
+    private void showSavedAt(LocalDateTime time) {
+        setSaveStatus("SAVED " + time.format(SAVE_TIME), Theme.MUTED);
+    }
+
+    /**
+     * Sets the save status text, followed by the data file path, and its colour.
+     *
+     * @param state the save state, such as "SAVED 23:41"
+     * @param color the text colour
+     */
+    private void setSaveStatus(String state, Color color) {
+        saveStatus.setText(state + " · " + DATA_FILE);
+        saveStatus.setForeground(color);
+    }
+
+    /**
      * Puts keyboard focus in the Item name field, ready for a new entry.
      * Call after the window is shown.
      */
@@ -1006,6 +1060,7 @@ public class InventoryGUI extends JFrame {
      */
     private void onInventoryChanged() {
         refresh();
+        refreshSaveStatus();
     }
 
     /**

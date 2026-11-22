@@ -5,7 +5,11 @@ import com.stockroom.exception.InvalidItemException;
 import com.stockroom.exception.ItemNotFoundException;
 import com.stockroom.model.Item;
 import com.stockroom.model.StockStatus;
+import com.stockroom.persistence.InventoryData;
+import com.stockroom.persistence.InventoryRepository;
 
+import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -27,6 +31,13 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * After each change, every registered {@link InventoryListener} is told
  * (Observer pattern).</p>
  *
+ * <p>When created with an {@link InventoryRepository}, the manager can
+ * {@linkplain #load() load} the stored inventory and saves it automatically
+ * after every add, update and delete. A failed save never undoes the change
+ * in memory; it is reported through {@link #getLastSaveError()}, and the
+ * next successful save writes everything. Without a repository the manager
+ * works purely in memory.</p>
+ *
  * @author Arsal Saeed
  * @author Laiba Rehman
  * @version 1.0
@@ -46,10 +57,73 @@ public class InventoryManager {
     /** ID given to the next item that is added. */
     private int nextId = 1;
 
+    /** Where the inventory is loaded from and saved to; {@code null} for in-memory only. */
+    private final InventoryRepository repository;
+
+    /** Whether changes are saved; turned off if loading failed, so a file that could not be read is never overwritten. */
+    private boolean autoSave;
+
+    /** When the inventory was last saved successfully, or {@code null} if never. */
+    private LocalDateTime lastSavedAt;
+
+    /** Error from the most recent save attempt, or {@code null} if it worked. */
+    private IOException lastSaveError;
+
     /**
-     * Creates an empty inventory manager.
+     * Creates an empty, in-memory inventory manager that never saves.
      */
     public InventoryManager() {
+        this.repository = null;
+        this.autoSave = false;
+    }
+
+    /**
+     * Creates an empty inventory manager that saves to a repository after
+     * every change. Call {@link #load()} to read the stored inventory first.
+     *
+     * @param repository where to load and save the inventory
+     * @throws NullPointerException if {@code repository} is {@code null}
+     */
+    public InventoryManager(InventoryRepository repository) {
+        this.repository = Objects.requireNonNull(repository, "repository");
+        this.autoSave = true;
+    }
+
+    /**
+     * Replaces the inventory with the one stored in the repository, then
+     * tells the listeners. Does nothing for an in-memory manager.
+     *
+     * <p>Stored items that break the inventory rules are skipped: an invalid
+     * name, quantity or threshold, a repeated ID, or a name already used by
+     * an earlier item (ignoring case).</p>
+     *
+     * <p>If the repository cannot be read, the inventory is left empty and
+     * automatic saving is turned off, so the unreadable data is not
+     * overwritten.</p>
+     *
+     * @throws IOException if the stored inventory cannot be read
+     */
+    public void load() throws IOException {
+        if (repository == null) {
+            return;
+        }
+        InventoryData data;
+        try {
+            data = repository.load();
+        } catch (IOException e) {
+            autoSave = false;
+            throw e;
+        }
+        items.clear();
+        int maxId = 0;
+        for (Item item : data.items()) {
+            if (isLoadable(item)) {
+                items.put(item.getId(), item);
+                maxId = Math.max(maxId, item.getId());
+            }
+        }
+        nextId = Math.max(data.nextId(), maxId + 1);
+        notifyListeners();
     }
 
     /**
@@ -73,7 +147,7 @@ public class InventoryManager {
         }
         Item item = new Item(nextId++, name, quantity, threshold);
         items.put(item.getId(), item);
-        notifyListeners();
+        changed();
         return item;
     }
 
@@ -106,7 +180,7 @@ public class InventoryManager {
         item.setName(name);
         item.setQuantity(quantity);
         item.setThreshold(threshold);
-        notifyListeners();
+        changed();
         return item;
     }
 
@@ -122,7 +196,7 @@ public class InventoryManager {
         if (removed == null) {
             throw notFound(id);
         }
-        notifyListeners();
+        changed();
         return removed;
     }
 
@@ -230,6 +304,82 @@ public class InventoryManager {
      */
     public void removeListener(InventoryListener listener) {
         listeners.remove(listener);
+    }
+
+    /**
+     * Tells whether changes are being saved automatically. This is
+     * {@code false} for an in-memory manager and after a failed {@link #load()}.
+     *
+     * @return {@code true} if every change is saved to the repository
+     */
+    public boolean isAutoSaving() {
+        return autoSave;
+    }
+
+    /**
+     * Returns when the inventory was last saved successfully.
+     *
+     * @return the time of the last successful save, or empty if nothing has
+     *         been saved since the manager was created
+     */
+    public Optional<LocalDateTime> getLastSavedAt() {
+        return Optional.ofNullable(lastSavedAt);
+    }
+
+    /**
+     * Returns the error from the most recent save attempt.
+     *
+     * @return the error, or empty if the last save worked or none was tried
+     */
+    public Optional<IOException> getLastSaveError() {
+        return Optional.ofNullable(lastSaveError);
+    }
+
+    /**
+     * Saves the inventory (if auto-save is on) and then tells the listeners,
+     * so they see the up-to-date save status. Called after every change.
+     */
+    private void changed() {
+        if (autoSave) {
+            save();
+        }
+        notifyListeners();
+    }
+
+    /**
+     * Writes the whole inventory to the repository, recording the time on
+     * success or the error on failure. The in-memory inventory is never
+     * rolled back.
+     */
+    private void save() {
+        try {
+            repository.save(new InventoryData(getAll(), nextId));
+            lastSavedAt = LocalDateTime.now();
+            lastSaveError = null;
+        } catch (IOException e) {
+            lastSaveError = e;
+        }
+    }
+
+    /**
+     * Checks a stored item against the inventory rules before it is loaded:
+     * valid name, quantity and threshold, and an ID and name not already
+     * taken by an item loaded earlier.
+     *
+     * @param item the stored item
+     * @return {@code true} if the item can be loaded
+     */
+    private boolean isLoadable(Item item) {
+        try {
+            if (!InputValidator.validateName(item.getName()).equals(item.getName())) {
+                return false;
+            }
+            InputValidator.parseQuantity(String.valueOf(item.getQuantity()));
+            InputValidator.parseThreshold(String.valueOf(item.getThreshold()));
+        } catch (InvalidItemException e) {
+            return false;
+        }
+        return !items.containsKey(item.getId()) && !isNameTaken(item.getName(), NO_ID);
     }
 
     /**
