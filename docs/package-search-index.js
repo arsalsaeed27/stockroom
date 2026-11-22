@@ -1,0 +1,1 @@
+packageSearchIndex = [{"l":"All Packages","u":"allpackages-index.html"},{"l":"com.stockroom"},{"l":"com.stockroom.exception"},{"l":"com.stockroom.model"},{"l":"com.stockroom.persistence"},{"l":"com.stockroom.service"},{"l":"com.stockroom.ui"},{"l":"com.stockroom.ui.components"},{"l":"com.stockroom.ui.theme"}];updateSearchResults();

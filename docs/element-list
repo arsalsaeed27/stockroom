@@ -1,0 +1,8 @@
+com.stockroom
+com.stockroom.exception
+com.stockroom.model
+com.stockroom.persistence
+com.stockroom.service
+com.stockroom.ui
+com.stockroom.ui.components
+com.stockroom.ui.theme
