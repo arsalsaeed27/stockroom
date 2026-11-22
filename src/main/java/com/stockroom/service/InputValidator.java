@@ -1,6 +1,7 @@
 package com.stockroom.service;
 
 import com.stockroom.exception.InvalidItemException;
+import com.stockroom.exception.InvalidItemException.Field;
 import com.stockroom.model.Item;
 
 import java.math.BigInteger;
@@ -54,10 +55,10 @@ public final class InputValidator {
     public static String validateName(String raw) throws InvalidItemException {
         String name = raw == null ? "" : raw.trim();
         if (name.isEmpty()) {
-            throw new InvalidItemException("Item name cannot be empty.");
+            throw new InvalidItemException(Field.NAME, "Item name cannot be empty.");
         }
         if (name.length() > MAX_NAME_LENGTH) {
-            throw new InvalidItemException("Item name must be 40 characters or fewer.");
+            throw new InvalidItemException(Field.NAME, "Item name must be 40 characters or fewer.");
         }
         return name;
     }
@@ -73,9 +74,9 @@ public final class InputValidator {
     public static int parseQuantity(String raw) throws InvalidItemException {
         String text = raw == null ? "" : raw.trim();
         if (text.isEmpty()) {
-            throw new InvalidItemException("Quantity is required.");
+            throw new InvalidItemException(Field.QUANTITY, "Quantity is required.");
         }
-        return parseWholeNumber(text, "Quantity", MAX_QUANTITY, "1,000,000", "25");
+        return parseWholeNumber(text, Field.QUANTITY, "Quantity", MAX_QUANTITY, "1,000,000", "25");
     }
 
     /**
@@ -93,14 +94,43 @@ public final class InputValidator {
         if (text.isEmpty()) {
             return Item.DEFAULT_THRESHOLD;
         }
-        return parseWholeNumber(text, "Threshold", MAX_THRESHOLD, "10,000", "5");
+        return parseWholeNumber(text, Field.THRESHOLD, "Threshold", MAX_THRESHOLD, "10,000", "5");
+    }
+
+    /**
+     * Parses an item ID typed in to look an item up. A leading {@code #}
+     * is allowed, so both "7" and "#0007" mean ID 7. Whether an item with
+     * this ID exists is checked by the inventory manager, not here.
+     *
+     * @param raw the ID exactly as typed; may be {@code null}
+     * @return the ID, between 1 and {@link Integer#MAX_VALUE}
+     * @throws InvalidItemException if the text is blank, not a whole number,
+     *                              zero, negative, or too large to be an ID
+     */
+    public static int parseId(String raw) throws InvalidItemException {
+        String text = raw == null ? "" : raw.trim();
+        if (text.startsWith("#")) {
+            text = text.substring(1).trim();
+        }
+        if (text.isEmpty()) {
+            throw new InvalidItemException(Field.ID, "Item ID is required.");
+        }
+        if (!WHOLE_NUMBER.matcher(text).matches()) {
+            throw new InvalidItemException(Field.ID, "Item ID must be a whole number (e.g. 7).");
+        }
+        BigInteger value = new BigInteger(text);
+        if (value.signum() <= 0 || value.compareTo(BigInteger.valueOf(Integer.MAX_VALUE)) > 0) {
+            throw new InvalidItemException(Field.ID, "Item ID must be a positive whole number (e.g. 7).");
+        }
+        return value.intValue();
     }
 
     /**
      * Parses non-blank, trimmed text as a whole number from 0 up to a maximum.
      *
      * @param text     the trimmed, non-blank text to parse
-     * @param field    the field name used at the start of each message
+     * @param field    the field reported in any exception thrown
+     * @param label    the field name used at the start of each message
      * @param max      the largest value allowed
      * @param maxLabel the maximum written for the user, such as "1,000,000"
      * @param example  an example value shown in the not-a-number message
@@ -108,19 +138,19 @@ public final class InputValidator {
      * @throws InvalidItemException if the text is not a whole number,
      *                              is negative, or is larger than {@code max}
      */
-    private static int parseWholeNumber(String text, String field, int max,
+    private static int parseWholeNumber(String text, Field field, String label, int max,
                                         String maxLabel, String example)
             throws InvalidItemException {
         if (!WHOLE_NUMBER.matcher(text).matches()) {
-            throw new InvalidItemException(
-                    field + " must be a whole number (e.g. " + example + ").");
+            throw new InvalidItemException(field,
+                    label + " must be a whole number (e.g. " + example + ").");
         }
         BigInteger value = new BigInteger(text);
         if (value.signum() < 0) {
-            throw new InvalidItemException(field + " cannot be negative.");
+            throw new InvalidItemException(field, label + " cannot be negative.");
         }
         if (value.compareTo(BigInteger.valueOf(max)) > 0) {
-            throw new InvalidItemException(field + " cannot exceed " + maxLabel + ".");
+            throw new InvalidItemException(field, label + " cannot exceed " + maxLabel + ".");
         }
         return value.intValue();
     }

@@ -1,14 +1,15 @@
 package com.stockroom.ui;
 
-import javax.swing.JFrame;
+import com.stockroom.service.InventoryManager;
+import com.stockroom.ui.theme.Theme;
+
 import javax.swing.SwingUtilities;
-import javax.swing.WindowConstants;
 
 /**
  * Application entry point for Stockroom.
  *
- * <p>For now this opens an empty placeholder window. The full ledger
- * interface is built in later steps.</p>
+ * <p>Installs the Stockroom Ledger theme, then builds and shows the main
+ * window on the Swing event dispatch thread.</p>
  *
  * @author Arsal Saeed
  * @author Laiba Rehman
@@ -16,15 +17,6 @@ import javax.swing.WindowConstants;
  * @since 1.0
  */
 public final class Main {
-
-    /** Title shown in the main window's title bar. */
-    private static final String WINDOW_TITLE = "Stockroom";
-
-    /** Default window width in pixels. */
-    private static final int DEFAULT_WIDTH = 1280;
-
-    /** Default window height in pixels. */
-    private static final int DEFAULT_HEIGHT = 800;
 
     /**
      * Private constructor; this class only holds the static entry point
@@ -34,24 +26,26 @@ public final class Main {
     }
 
     /**
-     * Starts the application by scheduling the window creation on the
-     * Swing event dispatch thread.
+     * Starts the application. The theme is installed first, before any
+     * Swing component exists, so text antialiasing and the ledger defaults
+     * apply everywhere; the window is then created on the event dispatch
+     * thread.
      *
      * @param args command-line arguments (not used)
      */
     public static void main(String[] args) {
+        Theme.install();
         SwingUtilities.invokeLater(Main::createAndShowWindow);
     }
 
     /**
-     * Creates the placeholder main window, centres it on screen and makes
-     * it visible. Must be called on the event dispatch thread.
+     * Creates the inventory and the main window, shows the window and puts
+     * the cursor in the Item name field. Must be called on the event
+     * dispatch thread.
      */
     private static void createAndShowWindow() {
-        JFrame frame = new JFrame(WINDOW_TITLE);
-        frame.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-        frame.setSize(DEFAULT_WIDTH, DEFAULT_HEIGHT);
-        frame.setLocationRelativeTo(null);
-        frame.setVisible(true);
+        InventoryGUI gui = new InventoryGUI(new InventoryManager());
+        gui.setVisible(true);
+        gui.focusNewEntry();
     }
 }
