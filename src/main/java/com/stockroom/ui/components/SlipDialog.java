@@ -5,8 +5,6 @@ import com.stockroom.ui.theme.Theme;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.FlowLayout;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
 import java.awt.Window;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
@@ -27,8 +25,8 @@ import javax.swing.border.EmptyBorder;
  * instead of a plain {@code JOptionPane}, for example to confirm
  * "VOID ENTRY #0007?".
  *
- * <p>The slip has a surface background, a 2px ink frame and a perforated
- * dashed edge at the top. It shows a small "CONFIRMATION SLIP" tag, a
+ * <p>The slip is a framed {@link SlipPanel}: a surface background, a 2px ink
+ * frame and a perforated dashed edge at the top. It shows a small "CONFIRMATION SLIP" tag, a
  * Space Grotesk title, a muted detail line and two buttons: CANCEL and the
  * confirm action. Escape and Enter both cancel, so a stray key press never
  * deletes anything.</p>
@@ -45,12 +43,6 @@ public final class SlipDialog extends JDialog {
 
     /** Padding, in pixels, inside the slip frame. */
     private static final int PAD = 28;
-
-    /** Distance, in pixels, from the top of the slip to the perforated edge. */
-    private static final int PERFORATION_Y = 10;
-
-    /** Width, in pixels, of the ink frame. */
-    private static final int FRAME = 2;
 
     /** Small tag shown above the title. */
     private static final String TAG = "CONFIRMATION SLIP";
@@ -108,9 +100,9 @@ public final class SlipDialog extends JDialog {
         buttons.add(cancelButton);
         buttons.add(confirmButton);
 
-        SlipPanel slip = new SlipPanel();
+        SlipPanel slip = new SlipPanel(true);
         slip.setLayout(new BorderLayout(0, 26));
-        slip.setBorder(new EmptyBorder(PAD + PERFORATION_Y, PAD, PAD, PAD));
+        slip.setBorder(new EmptyBorder(PAD + SlipPanel.PERFORATION_CLEARANCE - 8, PAD, PAD, PAD));
         slip.add(text, BorderLayout.CENTER);
         slip.add(buttons, BorderLayout.SOUTH);
         setContentPane(slip);
@@ -183,46 +175,4 @@ public final class SlipDialog extends JDialog {
         dispose();
     }
 
-    /**
-     * Content panel of the dialog: a surface-coloured slip with an ink frame
-     * and a perforated top edge.
-     *
-     * @author Arsal Saeed
-     * @author Laiba Rehman
-     * @version 1.0
-     * @since 1.0
-     */
-    private static final class SlipPanel extends JPanel {
-
-        /**
-         * Creates the slip panel.
-         */
-        private SlipPanel() {
-            setOpaque(true);
-        }
-
-        /**
-         * Paints the slip background, the perforated edge and the ink frame.
-         *
-         * @param g the graphics context to paint on
-         */
-        @Override
-        protected void paintComponent(Graphics g) {
-            Graphics2D g2 = Theme.applyRenderingHints(g.create());
-            try {
-                int width = getWidth();
-                int height = getHeight();
-                g2.setColor(Theme.SURFACE);
-                g2.fillRect(0, 0, width, height);
-                Theme.paintPerforation(g2, FRAME + 8, PERFORATION_Y + FRAME, width - (FRAME + 8) * 2);
-                g2.setColor(Theme.INK);
-                g2.fillRect(0, 0, width, FRAME);
-                g2.fillRect(0, height - FRAME, width, FRAME);
-                g2.fillRect(0, 0, FRAME, height);
-                g2.fillRect(width - FRAME, 0, FRAME, height);
-            } finally {
-                g2.dispose();
-            }
-        }
-    }
 }

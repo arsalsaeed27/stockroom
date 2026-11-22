@@ -30,8 +30,8 @@ import javax.swing.Timer;
  * stays for about 2.5 seconds, then fades out. It looks like a till receipt:
  * a surface-coloured slip with a torn, zig-zag bottom edge, a small header
  * line with the time, a dashed rule, and the message beside a hand-drawn
- * mark (a green tick for success, a red cross for an error). Error toasts
- * also have a red edge on the left.</p>
+ * mark (a green tick for success, a red cross for an error, an ink dash for
+ * a neutral notice). Error toasts also have a red edge on the left.</p>
  *
  * <p>One toast object is created per window and reused. Showing a new
  * message while one is on screen replaces it and restarts the animation.
@@ -108,8 +108,8 @@ public class Toast extends JComponent {
     /** Header title on success toasts. */
     private static final String SUCCESS_TITLE = "LEDGER RECEIPT";
 
-    /** Header title on error toasts. */
-    private static final String ERROR_TITLE = "LEDGER NOTICE";
+    /** Header title on error and neutral toasts. */
+    private static final String NOTICE_TITLE = "LEDGER NOTICE";
 
     /** Format of the time printed in the header. */
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
@@ -129,8 +129,8 @@ public class Toast extends JComponent {
     /** Message, already wrapped into lines that fit the slip. */
     private List<String> lines = new ArrayList<>();
 
-    /** Whether the current toast is an error. */
-    private boolean error;
+    /** Kind of the toast currently shown. */
+    private Kind kind = Kind.SUCCESS;
 
     /** Time printed in the header, captured when the toast was shown. */
     private String timeStamp = "";
@@ -166,7 +166,7 @@ public class Toast extends JComponent {
      * @param message the message to show
      */
     public void showSuccess(String message) {
-        present(message, false);
+        present(message, Kind.SUCCESS);
     }
 
     /**
@@ -176,7 +176,17 @@ public class Toast extends JComponent {
      * @param message the error message to show
      */
     public void showError(String message) {
-        present(message, true);
+        present(message, Kind.ERROR);
+    }
+
+    /**
+     * Shows a neutral notice, for example to say the ledger is empty. A short
+     * ink dash is drawn before the message.
+     *
+     * @param message the message to show
+     */
+    public void showInfo(String message) {
+        present(message, Kind.INFO);
     }
 
     /**
@@ -202,12 +212,12 @@ public class Toast extends JComponent {
         FontMetrics header = getFontMetrics(headerFont);
         FontMetrics body = getFontMetrics(messageFont);
 
-        int textWidth = header.stringWidth(error ? ERROR_TITLE : SUCCESS_TITLE)
+        int textWidth = header.stringWidth(title())
                 + HEADER_MIN_GAP + header.stringWidth(timeStamp);
         for (String line : lines) {
             textWidth = Math.max(textWidth, MARK_SIZE + MARK_GAP + body.stringWidth(line));
         }
-        int width = Math.max(MIN_WIDTH, textWidth + PAD_X * 2 + (error ? ERROR_EDGE : 0));
+        int width = Math.max(MIN_WIDTH, textWidth + PAD_X * 2 + (kind == Kind.ERROR ? ERROR_EDGE : 0));
         width = ((width + TOOTH_WIDTH - 1) / TOOTH_WIDTH) * TOOTH_WIDTH;
 
         int lineCount = Math.max(1, lines.size());
@@ -220,11 +230,11 @@ public class Toast extends JComponent {
     /**
      * Starts showing a message, replacing any toast already on screen.
      *
-     * @param message the message to show
-     * @param isError {@code true} for an error notice, {@code false} for a success receipt
+     * @param message   the message to show
+     * @param toastKind whether this is a success, error or neutral toast
      */
-    private void present(String message, boolean isError) {
-        error = isError;
+    private void present(String message, Kind toastKind) {
+        kind = toastKind;
         timeStamp = LocalTime.now().format(TIME_FORMAT);
         lines = wrap(message == null ? "" : message);
 
@@ -333,7 +343,7 @@ public class Toast extends JComponent {
             g2.draw(slip);
 
             int left = PAD_X;
-            if (error) {
+            if (kind == Kind.ERROR) {
                 g2.setColor(Theme.STATUS_OUT);
                 g2.fillRect(0, 0, ERROR_EDGE, bodyBottom);
                 left += ERROR_EDGE;
@@ -380,7 +390,7 @@ public class Toast extends JComponent {
         FontMetrics header = g2.getFontMetrics();
         int y = PAD_TOP + header.getAscent();
         g2.setColor(Theme.MUTED);
-        g2.drawString(error ? ERROR_TITLE : SUCCESS_TITLE, left, y);
+        g2.drawString(title(), left, y);
         g2.drawString(timeStamp, right - header.stringWidth(timeStamp), y);
 
         y += header.getDescent() + RULE_GAP;
@@ -405,7 +415,17 @@ public class Toast extends JComponent {
     }
 
     /**
-     * Draws the success tick or the error cross as simple ink strokes.
+     * Returns the header title for the current kind of toast.
+     *
+     * @return "LEDGER RECEIPT" for success, "LEDGER NOTICE" otherwise
+     */
+    private String title() {
+        return kind == Kind.SUCCESS ? SUCCESS_TITLE : NOTICE_TITLE;
+    }
+
+    /**
+     * Draws the success tick, the error cross or the neutral dash as simple
+     * strokes.
      *
      * @param g2 the graphics context to paint on
      * @param x  left edge of the mark
@@ -414,7 +434,11 @@ public class Toast extends JComponent {
     private void paintMark(Graphics2D g2, int x, int y) {
         g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_SQUARE, BasicStroke.JOIN_MITER));
         Path2D mark = new Path2D.Float();
-        if (error) {
+        if (kind == Kind.INFO) {
+            g2.setColor(Theme.INK);
+            mark.moveTo(x + 1, y + MARK_SIZE / 2f);
+            mark.lineTo(x + MARK_SIZE - 1, y + MARK_SIZE / 2f);
+        } else if (kind == Kind.ERROR) {
             g2.setColor(Theme.STATUS_OUT);
             mark.moveTo(x + 1, y + 1);
             mark.lineTo(x + MARK_SIZE - 1, y + MARK_SIZE - 1);
@@ -427,5 +451,25 @@ public class Toast extends JComponent {
             mark.lineTo(x + MARK_SIZE, y + MARK_SIZE * 0.1f);
         }
         g2.draw(mark);
+    }
+
+    /**
+     * Kinds of toast, each with its own mark and edge.
+     *
+     * @author Arsal Saeed
+     * @author Laiba Rehman
+     * @version 1.0
+     * @since 1.0
+     */
+    private enum Kind {
+
+        /** Success receipt with a green tick. */
+        SUCCESS,
+
+        /** Error notice with a red cross and a red left edge. */
+        ERROR,
+
+        /** Neutral notice with an ink dash. */
+        INFO
     }
 }

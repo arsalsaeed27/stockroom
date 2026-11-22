@@ -3,16 +3,12 @@ package com.stockroom.ui.components;
 import com.stockroom.ui.theme.Theme;
 
 import java.awt.BorderLayout;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
 import java.awt.event.ActionListener;
-import java.awt.event.FocusEvent;
 import java.util.Locale;
 
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
-import javax.swing.border.EmptyBorder;
 
 /**
  * Labelled text input in the style of a paper entry slip.
@@ -20,9 +16,9 @@ import javax.swing.border.EmptyBorder;
  * <p>A SlipField stacks three parts:</p>
  * <ul>
  *   <li>a small-caps mono label;</li>
- *   <li>an underline-only text input. The underline is ink at rest, turns
- *       orange while the field has focus and status red while it shows an
- *       error;</li>
+ *   <li>an {@link UnderlineField}: an underline-only input whose line is ink
+ *       at rest, orange while focused and status red while an error is
+ *       shown;</li>
  *   <li>a message line that shows optional helper text in muted grey, or the
  *       current error in red.</li>
  * </ul>
@@ -57,7 +53,7 @@ public class SlipField extends JPanel {
     private final JLabel label;
 
     /** The underline-only text input. */
-    private final UnderlineTextField field;
+    private final UnderlineField field;
 
     /** Message line below the input, for helper or error text. */
     private final JLabel message;
@@ -92,7 +88,7 @@ public class SlipField extends JPanel {
         label.setFont(Theme.tracked(Theme.monoSemiBold(LABEL_SIZE), Theme.TRACKING_LABEL));
         label.setForeground(Theme.MUTED);
 
-        field = new UnderlineTextField();
+        field = new UnderlineField(INPUT_SIZE);
         label.setLabelFor(field);
 
         message = new JLabel(BLANK);
@@ -181,6 +177,17 @@ public class SlipField extends JPanel {
     }
 
     /**
+     * Returns the height, in pixels, of the message line plus the gap above
+     * it. Layouts use this to line a neighbouring button up with the
+     * underline.
+     *
+     * @return the space below the underline, in pixels
+     */
+    public int getMessageSpace() {
+        return message.getPreferredSize().height + GAP;
+    }
+
+    /**
      * Moves keyboard focus into the input.
      */
     public void focusField() {
@@ -221,90 +228,6 @@ public class SlipField extends JPanel {
         } else {
             message.setText(helperText.isEmpty() ? BLANK : helperText);
             message.setForeground(Theme.MUTED);
-        }
-    }
-
-    /**
-     * Transparent text field that draws only an underline. The underline is
-     * ink at rest, orange with focus and red when an error is shown.
-     *
-     * @author Arsal Saeed
-     * @author Laiba Rehman
-     * @version 1.0
-     * @since 1.0
-     */
-    private static final class UnderlineTextField extends JTextField {
-
-        /** Thickness, in pixels, of the underline at rest. */
-        private static final int LINE_REST = 1;
-
-        /** Thickness, in pixels, of the underline with focus or an error. */
-        private static final int LINE_ACTIVE = 2;
-
-        /** Whether the field is showing an error. */
-        private boolean error;
-
-        /**
-         * Creates the underline text field with ledger fonts and colours.
-         */
-        private UnderlineTextField() {
-            setOpaque(false);
-            setBorder(new EmptyBorder(4, 0, 8, 0));
-            setFont(Theme.mono(INPUT_SIZE));
-            setForeground(Theme.INK);
-            setCaretColor(Theme.INK);
-            setSelectionColor(Theme.ACCENT_TINT);
-            setSelectedTextColor(Theme.INK);
-            setDisabledTextColor(Theme.MUTED);
-        }
-
-        /**
-         * Switches the error underline on or off.
-         *
-         * @param error {@code true} to show the red error underline
-         */
-        private void setError(boolean error) {
-            this.error = error;
-            repaint();
-        }
-
-        /**
-         * Handles focus changes as usual, then repaints so the underline
-         * colour follows the focus.
-         *
-         * @param e the focus event
-         */
-        @Override
-        protected void processFocusEvent(FocusEvent e) {
-            super.processFocusEvent(e);
-            repaint();
-        }
-
-        /**
-         * Paints the text, then the underline in the colour for the current
-         * state.
-         *
-         * @param g the graphics context to paint on
-         */
-        @Override
-        protected void paintComponent(Graphics g) {
-            Theme.applyRenderingHints(g);
-            super.paintComponent(g);
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                boolean focused = isFocusOwner();
-                if (error) {
-                    g2.setColor(Theme.STATUS_OUT);
-                } else if (focused) {
-                    g2.setColor(Theme.ACCENT);
-                } else {
-                    g2.setColor(isEnabled() ? Theme.INK : Theme.RULE);
-                }
-                int thickness = (error || focused) ? LINE_ACTIVE : LINE_REST;
-                g2.fillRect(0, getHeight() - thickness, getWidth(), thickness);
-            } finally {
-                g2.dispose();
-            }
         }
     }
 }
