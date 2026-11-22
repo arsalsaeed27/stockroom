@@ -29,18 +29,23 @@ import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
-import java.awt.FlowLayout;
+import java.awt.FontMetrics;
+import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
+import java.awt.Image;
 import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.awt.image.BufferedImage;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -126,6 +131,12 @@ public class InventoryGUI extends JFrame {
 
     /** Share of the extra width given to the Entry Slip column. */
     private static final double SLIP_WEIGHT = 0.32;
+
+    /** Width, in pixels, of the search field above the ledger. */
+    private static final int SEARCH_WIDTH = 260;
+
+    /** Pixel sizes of the window icon, for the title bar, taskbar and Alt+Tab. */
+    private static final int[] ICON_SIZES = {16, 20, 24, 32, 40, 48, 64};
 
     /** Card name of the ledger table. */
     private static final String CARD_TABLE = "table";
@@ -289,6 +300,7 @@ public class InventoryGUI extends JFrame {
         manager.addListener(this::onInventoryChanged);
         refresh();
 
+        setIconImages(createWindowIcons());
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         setMinimumSize(new Dimension(MIN_WIDTH, MIN_HEIGHT));
         setSize(DEFAULT_WIDTH, DEFAULT_HEIGHT);
@@ -340,6 +352,40 @@ public class InventoryGUI extends JFrame {
         header.add(brand, BorderLayout.WEST);
         header.add(countersWrap, BorderLayout.EAST);
         return header;
+    }
+
+    /**
+     * Paints the window icon at several sizes, replacing Java's default
+     * coffee cup: an ink square holding a paper "S" in Space Grotesk, with
+     * an orange accent bar along the bottom, like a ledger stamp.
+     *
+     * @return the icon images, smallest first
+     */
+    private static List<Image> createWindowIcons() {
+        List<Image> icons = new ArrayList<>();
+        for (int size : ICON_SIZES) {
+            BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = Theme.applyRenderingHints(image.createGraphics());
+            try {
+                g2.setColor(Theme.INK);
+                g2.fillRect(0, 0, size, size);
+                int bar = Math.max(2, size / 8);
+                g2.setColor(Theme.ACCENT);
+                g2.fillRect(0, size - bar, size, bar);
+
+                g2.setFont(Theme.display(size * 0.78f));
+                FontMetrics fm = g2.getFontMetrics();
+                int capHeight = fm.getAscent() - fm.getDescent();
+                int x = (size - fm.stringWidth("S")) / 2;
+                int y = (size - bar + capHeight) / 2;
+                g2.setColor(Theme.PAPER);
+                g2.drawString("S", x, y);
+            } finally {
+                g2.dispose();
+            }
+            icons.add(image);
+        }
+        return icons;
     }
 
     /**
@@ -420,24 +466,32 @@ public class InventoryGUI extends JFrame {
      * @return the ledger column panel
      */
     private JPanel buildLedgerColumn() {
-        searchField.setColumns(18);
+        searchField.setPreferredSize(new Dimension(SEARCH_WIDTH, searchField.getPreferredSize().height));
+        searchField.setMinimumSize(searchField.getPreferredSize());
 
-        JPanel searchWrap = new JPanel(new BorderLayout());
-        searchWrap.setOpaque(false);
-        searchWrap.add(searchField, BorderLayout.CENTER);
-        searchWrap.setPreferredSize(new Dimension(260, statusFilter.getPreferredSize().height));
-
-        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        left.setOpaque(false);
-        left.add(searchWrap);
-        left.add(Box.createHorizontalStrut(20));
-        left.add(statusFilter);
-
-        JPanel toolbar = new JPanel(new BorderLayout());
+        // Every toolbar control sits on one shared bottom line, like entries on a ruled page.
+        JPanel toolbar = new JPanel(new GridBagLayout());
         toolbar.setOpaque(false);
         toolbar.setBorder(new EmptyBorder(0, 0, 16, 0));
-        toolbar.add(left, BorderLayout.WEST);
-        toolbar.add(viewAllButton, BorderLayout.EAST);
+        GridBagConstraints c = new GridBagConstraints();
+        c.gridy = 0;
+        c.anchor = GridBagConstraints.PAGE_END;
+
+        c.gridx = 0;
+        toolbar.add(searchField, c);
+
+        c.gridx = 1;
+        c.insets = new Insets(0, 20, 0, 0);
+        toolbar.add(statusFilter, c);
+
+        c.gridx = 2;
+        c.weightx = 1;
+        c.insets = new Insets(0, 0, 0, 0);
+        toolbar.add(Box.createHorizontalGlue(), c);
+
+        c.gridx = 3;
+        c.weightx = 0;
+        toolbar.add(viewAllButton, c);
 
         JScrollPane scroll = new JScrollPane(table);
         scroll.setBorder(BorderFactory.createEmptyBorder());
@@ -926,7 +980,7 @@ public class InventoryGUI extends JFrame {
         getRootPane().registerKeyboardAction(this::onFind,
                 KeyStroke.getKeyStroke(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK),
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
-        getRootPane().registerKeyboardAction(this::onClear,
+        getRootPane().registerKeyboardAction(this::onEscape,
                 KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
         table.registerKeyboardAction(this::onVoid,
@@ -1010,13 +1064,26 @@ public class InventoryGUI extends JFrame {
     }
 
     /**
-     * Handles CLEAR and the Escape key: empties the slip and returns to
-     * new-entry mode.
+     * Handles CLEAR: empties the slip and returns to new-entry mode.
      *
-     * @param e the button or key event (not used)
+     * @param e the button event (not used)
      */
     private void onClear(ActionEvent e) {
         resetSlip();
+    }
+
+    /**
+     * Handles the Escape key. While typing in the search field, Escape
+     * clears the search; anywhere else it clears the slip, like CLEAR.
+     *
+     * @param e the key event (not used)
+     */
+    private void onEscape(ActionEvent e) {
+        if (searchField.isFocusOwner() && !searchField.getText().isEmpty()) {
+            searchField.setText("");
+        } else {
+            resetSlip();
+        }
     }
 
     /**
