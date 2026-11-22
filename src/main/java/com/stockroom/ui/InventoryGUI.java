@@ -1,7 +1,11 @@
 package com.stockroom.ui;
 
+import com.stockroom.exception.DuplicateItemException;
+import com.stockroom.exception.InvalidItemException;
+import com.stockroom.exception.ItemNotFoundException;
 import com.stockroom.model.Item;
 import com.stockroom.model.StockStatus;
+import com.stockroom.service.InputValidator;
 import com.stockroom.service.InventoryManager;
 import com.stockroom.ui.components.DashedRule;
 import com.stockroom.ui.components.EmptyStatePanel;
@@ -9,8 +13,10 @@ import com.stockroom.ui.components.LedgerButton;
 import com.stockroom.ui.components.LedgerCellRenderer;
 import com.stockroom.ui.components.LedgerHeaderRenderer;
 import com.stockroom.ui.components.LedgerScrollBarUI;
+import com.stockroom.ui.components.LedgerTable;
 import com.stockroom.ui.components.LevelBarRenderer;
 import com.stockroom.ui.components.SegmentedToggle;
+import com.stockroom.ui.components.SlipDialog;
 import com.stockroom.ui.components.SlipField;
 import com.stockroom.ui.components.SlipPanel;
 import com.stockroom.ui.components.StampBadge;
@@ -29,10 +35,15 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.event.ActionEvent;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -42,11 +53,15 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
-import javax.swing.JTable;
+import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
+import javax.swing.RowFilter;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.WindowConstants;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.event.ListSelectionEvent;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumn;
@@ -142,14 +157,17 @@ public class InventoryGUI extends JFrame {
     /** Message of the empty state when a search or filter matches nothing. */
     private static final String NO_MATCH_MESSAGE = "No entries match this search or filter. Press VIEW ALL to reset.";
 
+    /** Value of {@link #editingId} while the slip holds a new entry; real IDs start at 1. */
+    private static final int NO_ID = 0;
+
     /** The inventory shown and edited by this window. */
     private final InventoryManager manager;
 
     /** Model behind the ledger table. */
     private final ItemTableModel tableModel;
 
-    /** Ledger table. */
-    private final JTable table;
+    /** Ledger table, which can flash newly added rows. */
+    private final LedgerTable table;
 
     /** Row sorter of the ledger table, also used later for search and filter. */
     private final TableRowSorter<ItemTableModel> sorter;
@@ -214,6 +232,9 @@ public class InventoryGUI extends JFrame {
     /** Receipt-style notifications for this window. */
     private final Toast toast;
 
+    /** ID of the item open on the Entry Slip, or {@link #NO_ID} in new-entry mode. */
+    private int editingId = NO_ID;
+
     /**
      * Builds the main window for an inventory. The window is not shown
      * until {@link #setVisible(boolean)} is called.
@@ -225,7 +246,7 @@ public class InventoryGUI extends JFrame {
         this.manager = manager;
 
         tableModel = new ItemTableModel();
-        table = new JTable(tableModel);
+        table = new LedgerTable(tableModel);
         sorter = new TableRowSorter<>(tableModel);
         cards = new CardLayout();
         cardPanel = new JPanel(cards);
@@ -261,9 +282,10 @@ public class InventoryGUI extends JFrame {
         root.add(buildHeader(), BorderLayout.NORTH);
         root.add(buildBody(), BorderLayout.CENTER);
         root.add(buildStatusBar(), BorderLayout.SOUTH);
+        toast.setAnchor(cardPanel);
         setContentPane(root);
 
-        viewAllButton.addActionListener(this::onViewAll);
+        wireActions();
         manager.addListener(this::onInventoryChanged);
         refresh();
 
@@ -620,7 +642,7 @@ public class InventoryGUI extends JFrame {
     }
 
     // ------------------------------------------------------------------
-    // State and refresh
+    // Slip state
     // ------------------------------------------------------------------
 
     /**
@@ -628,9 +650,59 @@ public class InventoryGUI extends JFrame {
      * button, and VOID ENTRY disabled because there is nothing to delete.
      */
     private void setNewEntryMode() {
+        editingId = NO_ID;
         setModeTag("NEW ENTRY", Theme.INK);
         primaryButton.setText("Add to ledger");
         voidButton.setEnabled(false);
+    }
+
+    /**
+     * Puts the Entry Slip in edit mode for an item: fills in its name,
+     * quantity and threshold, shows an orange "EDITING #0007" tag, renames
+     * the primary button to SAVE CHANGES and enables VOID ENTRY.
+     *
+     * @param item the item to edit
+     */
+    private void setEditMode(Item item) {
+        editingId = item.getId();
+        clearFieldErrors();
+        nameField.setText(item.getName());
+        quantityField.setText(String.valueOf(item.getQuantity()));
+        thresholdField.setText(String.valueOf(item.getThreshold()));
+        setModeTag("EDITING " + formatId(item.getId()), Theme.ACCENT);
+        primaryButton.setText("Save changes");
+        voidButton.setEnabled(true);
+    }
+
+    /**
+     * Empties the slip, removes every error, deselects the table and returns
+     * to new-entry mode.
+     */
+    private void resetSlip() {
+        clearInputs();
+        clearFieldErrors();
+        idField.setText("");
+        setNewEntryMode();
+        table.clearSelection();
+    }
+
+    /**
+     * Empties the name, quantity and threshold fields.
+     */
+    private void clearInputs() {
+        nameField.setText("");
+        quantityField.setText("");
+        thresholdField.setText("");
+    }
+
+    /**
+     * Removes the error from every field on the slip.
+     */
+    private void clearFieldErrors() {
+        nameField.clearError();
+        quantityField.clearError();
+        thresholdField.clearError();
+        idField.clearError();
     }
 
     /**
@@ -649,13 +721,115 @@ public class InventoryGUI extends JFrame {
     }
 
     /**
-     * Reloads the table from the inventory, then updates the counters and
-     * chooses between the table and the empty state.
+     * Returns the slip field that shows errors for an input field.
+     *
+     * @param field the field named by a validation error
+     * @return the matching slip field
+     */
+    private SlipField fieldFor(InvalidItemException.Field field) {
+        return switch (field) {
+            case NAME -> nameField;
+            case QUANTITY -> quantityField;
+            case THRESHOLD -> thresholdField;
+            case ID -> idField;
+        };
+    }
+
+    /**
+     * Shows a validation error inline under the field it belongs to, moves
+     * focus there, and shows an error toast.
+     *
+     * @param ex the validation error, naming the failing field
+     */
+    private void showFieldError(InvalidItemException ex) {
+        SlipField target = fieldFor(ex.getField());
+        target.setError(ex.getMessage());
+        target.focusField();
+        toast.showError(ex.getMessage());
+    }
+
+    /**
+     * Shows a duplicate-name error inline under the name field and as an
+     * error toast.
+     *
+     * @param ex the duplicate-name error
+     */
+    private void showDuplicateError(DuplicateItemException ex) {
+        nameField.setError(ex.getMessage());
+        nameField.focusField();
+        toast.showError(ex.getMessage());
+    }
+
+    /**
+     * Recovers when the item on the slip or the selected row no longer
+     * exists: resets the slip, reloads the ledger and explains what
+     * happened.
+     *
+     * @param id the ID that could not be found
+     */
+    private void handleStaleEntry(int id) {
+        resetSlip();
+        refresh();
+        toast.showError("Entry " + formatId(id) + " no longer exists. The ledger has been refreshed.");
+    }
+
+    /**
+     * Opens an item on the slip for editing, selecting its row if it is
+     * visible in the table.
+     *
+     * @param item the item to edit
+     */
+    private void openForEditing(Item item) {
+        int viewRow = findViewRow(item.getId());
+        if (viewRow >= 0) {
+            table.setRowSelectionInterval(viewRow, viewRow);
+            table.scrollRectToVisible(table.getCellRect(viewRow, 0, true));
+        } else {
+            table.clearSelection();
+        }
+        setEditMode(item);
+        nameField.focusField();
+    }
+
+    /**
+     * Finds the table row that shows an item.
+     *
+     * @param id the item ID
+     * @return the view row index, or -1 if the item is not shown
+     */
+    private int findViewRow(int id) {
+        for (int viewRow = 0; viewRow < table.getRowCount(); viewRow++) {
+            int modelRow = table.convertRowIndexToModel(viewRow);
+            if (tableModel.getItemAt(modelRow).getId() == id) {
+                return viewRow;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Formats an ID the way the ledger shows it.
+     *
+     * @param id the item ID
+     * @return the ID with a hash and zero padding, for example "#0007"
+     */
+    private static String formatId(int id) {
+        return String.format(Locale.ROOT, "#%04d", id);
+    }
+
+    // ------------------------------------------------------------------
+    // Refresh, search and filter
+    // ------------------------------------------------------------------
+
+    /**
+     * Reloads the table from the inventory, re-applies the search and filter,
+     * then updates the counters and chooses between the table and the empty
+     * state.
      */
     private void refresh() {
         tableModel.setItems(manager.getAll());
+        applyFilters();
         refreshCounters();
-        refreshCard();
     }
 
     /**
@@ -690,6 +864,84 @@ public class InventoryGUI extends JFrame {
         }
     }
 
+    /**
+     * Applies the search text and the status filter to the table. Name
+     * matching is done by {@link InventoryManager#searchByName(String)}, so
+     * the search rule lives in the service layer.
+     */
+    private void applyFilters() {
+        String query = searchField.getText().trim();
+        StockStatus status = selectedStatus();
+        if (query.isEmpty() && status == null) {
+            sorter.setRowFilter(null);
+        } else {
+            Set<Integer> matchingIds = new HashSet<>();
+            for (Item item : manager.searchByName(query)) {
+                matchingIds.add(item.getId());
+            }
+            sorter.setRowFilter(new LedgerRowFilter(matchingIds, status));
+        }
+        refreshCard();
+    }
+
+    /**
+     * Returns the status chosen in the ALL / IN / LOW / OUT filter.
+     *
+     * @return the chosen status, or {@code null} for ALL
+     */
+    private StockStatus selectedStatus() {
+        return switch (statusFilter.getSelectedIndex()) {
+            case 1 -> StockStatus.IN_STOCK;
+            case 2 -> StockStatus.LOW_STOCK;
+            case 3 -> StockStatus.OUT_OF_STOCK;
+            default -> null;
+        };
+    }
+
+    // ------------------------------------------------------------------
+    // Wiring
+    // ------------------------------------------------------------------
+
+    /**
+     * Connects every button, field, the table selection and the keyboard
+     * shortcuts to their handler methods.
+     */
+    private void wireActions() {
+        primaryButton.addActionListener(this::onPrimary);
+        nameField.addActionListener(this::onPrimary);
+        quantityField.addActionListener(this::onPrimary);
+        thresholdField.addActionListener(this::onPrimary);
+        clearButton.addActionListener(this::onClear);
+        voidButton.addActionListener(this::onVoid);
+        loadButton.addActionListener(this::onLoadById);
+        idField.addActionListener(this::onLoadById);
+        viewAllButton.addActionListener(this::onViewAll);
+        statusFilter.addActionListener(this::onFilterChanged);
+        searchField.getDocument().addDocumentListener(new SearchListener());
+        table.getSelectionModel().addListSelectionListener(this::onSelectionChanged);
+
+        getRootPane().registerKeyboardAction(this::onNewEntry,
+                KeyStroke.getKeyStroke(KeyEvent.VK_N, InputEvent.CTRL_DOWN_MASK),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
+        getRootPane().registerKeyboardAction(this::onFind,
+                KeyStroke.getKeyStroke(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
+        getRootPane().registerKeyboardAction(this::onClear,
+                KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
+        table.registerKeyboardAction(this::onVoid,
+                KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0),
+                JComponent.WHEN_FOCUSED);
+    }
+
+    /**
+     * Puts keyboard focus in the Item name field, ready for a new entry.
+     * Call after the window is shown.
+     */
+    public void focusNewEntry() {
+        nameField.focusField();
+    }
+
     // ------------------------------------------------------------------
     // Event handlers
     // ------------------------------------------------------------------
@@ -703,6 +955,186 @@ public class InventoryGUI extends JFrame {
     }
 
     /**
+     * Handles the primary slip button and Enter in the slip fields: adds a
+     * new entry in new-entry mode, or saves changes in edit mode.
+     *
+     * @param e the button or field event (not used)
+     */
+    private void onPrimary(ActionEvent e) {
+        if (editingId == NO_ID) {
+            addEntry();
+        } else {
+            saveEntry();
+        }
+    }
+
+    /**
+     * Adds the slip's contents as a new item. On success the slip is
+     * emptied, the new row flashes orange and a receipt toast appears; on
+     * failure the error is shown under the right field.
+     */
+    private void addEntry() {
+        clearFieldErrors();
+        try {
+            Item item = manager.add(nameField.getText(), quantityField.getText(), thresholdField.getText());
+            clearInputs();
+            nameField.focusField();
+            table.flashRow(findViewRow(item.getId()));
+            toast.showSuccess("ENTRY " + formatId(item.getId()) + " ADDED");
+        } catch (InvalidItemException ex) {
+            showFieldError(ex);
+        } catch (DuplicateItemException ex) {
+            showDuplicateError(ex);
+        }
+    }
+
+    /**
+     * Saves the slip's contents over the item being edited. On success the
+     * slip returns to new-entry mode and a receipt toast appears. If the item
+     * has disappeared, the stale entry is handled gracefully.
+     */
+    private void saveEntry() {
+        int id = editingId;
+        clearFieldErrors();
+        try {
+            manager.updateItem(id, nameField.getText(), quantityField.getText(), thresholdField.getText());
+            resetSlip();
+            toast.showSuccess("ENTRY " + formatId(id) + " UPDATED");
+        } catch (ItemNotFoundException ex) {
+            handleStaleEntry(id);
+        } catch (InvalidItemException ex) {
+            showFieldError(ex);
+        } catch (DuplicateItemException ex) {
+            showDuplicateError(ex);
+        }
+    }
+
+    /**
+     * Handles CLEAR and the Escape key: empties the slip and returns to
+     * new-entry mode.
+     *
+     * @param e the button or key event (not used)
+     */
+    private void onClear(ActionEvent e) {
+        resetSlip();
+    }
+
+    /**
+     * Handles Ctrl+N: starts a fresh entry and focuses the name field.
+     *
+     * @param e the key event (not used)
+     */
+    private void onNewEntry(ActionEvent e) {
+        resetSlip();
+        nameField.focusField();
+    }
+
+    /**
+     * Handles Ctrl+F: focuses the search field and selects its text.
+     *
+     * @param e the key event (not used)
+     */
+    private void onFind(ActionEvent e) {
+        searchField.requestFocusInWindow();
+        searchField.selectAll();
+    }
+
+    /**
+     * Handles VOID ENTRY and the Delete key on the table: asks for
+     * confirmation on a slip dialog, then deletes the item being edited.
+     *
+     * @param e the button or key event (not used)
+     */
+    private void onVoid(ActionEvent e) {
+        if (editingId == NO_ID) {
+            toast.showError("Select an entry to void first.");
+            return;
+        }
+        int id = editingId;
+        Optional<Item> item = manager.findById(id);
+        if (item.isEmpty()) {
+            handleStaleEntry(id);
+            return;
+        }
+        boolean confirmed = SlipDialog.confirm(this, "VOID ENTRY " + formatId(id) + "?",
+                item.get().getName(), "Void");
+        if (!confirmed) {
+            return;
+        }
+        try {
+            manager.deleteItem(id);
+            resetSlip();
+            toast.showSuccess("ENTRY " + formatId(id) + " VOIDED");
+        } catch (ItemNotFoundException ex) {
+            handleStaleEntry(id);
+        }
+    }
+
+    /**
+     * Handles LOAD and Enter in the Update-by-ID field: parses the typed ID
+     * and opens that item for editing, or shows a not-found message under
+     * the ID field.
+     *
+     * @param e the button or field event (not used)
+     */
+    private void onLoadById(ActionEvent e) {
+        idField.clearError();
+        try {
+            int id = InputValidator.parseId(idField.getText());
+            Item item = manager.getById(id);
+            idField.setText("");
+            openForEditing(item);
+            toast.showSuccess("ENTRY " + formatId(id) + " LOADED");
+        } catch (InvalidItemException ex) {
+            showFieldError(ex);
+        } catch (ItemNotFoundException ex) {
+            idField.setError(ex.getMessage());
+            idField.focusField();
+            toast.showError(ex.getMessage());
+        }
+    }
+
+    /**
+     * Handles a change of table selection: opens the selected item for
+     * editing. If the selected row's item no longer exists (a stale
+     * selection), it is handled gracefully instead.
+     *
+     * @param e the selection event
+     */
+    private void onSelectionChanged(ListSelectionEvent e) {
+        if (e.getValueIsAdjusting()) {
+            return;
+        }
+        int viewRow = table.getSelectedRow();
+        if (viewRow < 0) {
+            return;
+        }
+        Item rowItem = tableModel.getItemAt(table.convertRowIndexToModel(viewRow));
+        Optional<Item> current = manager.findById(rowItem.getId());
+        if (current.isEmpty()) {
+            handleStaleEntry(rowItem.getId());
+        } else {
+            setEditMode(current.get());
+        }
+    }
+
+    /**
+     * Handles a click on the ALL / IN / LOW / OUT filter.
+     *
+     * @param e the toggle event (not used)
+     */
+    private void onFilterChanged(ActionEvent e) {
+        applyFilters();
+    }
+
+    /**
+     * Handles typing in the search field by re-applying the filters.
+     */
+    private void onSearchChanged() {
+        applyFilters();
+    }
+
+    /**
      * Handles VIEW ALL: clears the search and the status filter and shows
      * every item. If the inventory is empty, shows the empty state and a
      * notice saying so.
@@ -712,13 +1144,104 @@ public class InventoryGUI extends JFrame {
     private void onViewAll(ActionEvent e) {
         searchField.setText("");
         statusFilter.setSelectedIndex(0);
-        sorter.setRowFilter(null);
         table.clearSelection();
         refresh();
         if (manager.isEmpty()) {
             toast.showInfo("LEDGER EMPTY · NO ENTRIES ON FILE");
         } else {
             toast.showInfo("SHOWING ALL " + manager.size() + " ENTRIES");
+        }
+    }
+
+    /**
+     * Document listener on the search field that re-filters the ledger on
+     * every keystroke.
+     *
+     * @author Arsal Saeed
+     * @author Laiba Rehman
+     * @version 1.0
+     * @since 1.0
+     */
+    private final class SearchListener implements DocumentListener {
+
+        /**
+         * Creates the search listener.
+         */
+        private SearchListener() {
+        }
+
+        /**
+         * Re-filters after text is typed.
+         *
+         * @param e the document event (not used)
+         */
+        @Override
+        public void insertUpdate(DocumentEvent e) {
+            onSearchChanged();
+        }
+
+        /**
+         * Re-filters after text is deleted.
+         *
+         * @param e the document event (not used)
+         */
+        @Override
+        public void removeUpdate(DocumentEvent e) {
+            onSearchChanged();
+        }
+
+        /**
+         * Re-filters after an attribute change; plain text fields do not
+         * send these, but it is handled for completeness.
+         *
+         * @param e the document event (not used)
+         */
+        @Override
+        public void changedUpdate(DocumentEvent e) {
+            onSearchChanged();
+        }
+    }
+
+    /**
+     * Row filter that keeps rows whose item matched the search and has the
+     * chosen status.
+     *
+     * @author Arsal Saeed
+     * @author Laiba Rehman
+     * @version 1.0
+     * @since 1.0
+     */
+    private static final class LedgerRowFilter extends RowFilter<ItemTableModel, Integer> {
+
+        /** IDs of items whose names matched the search. */
+        private final Set<Integer> matchingIds;
+
+        /** Status to keep, or {@code null} to keep every status. */
+        private final StockStatus status;
+
+        /**
+         * Creates the filter.
+         *
+         * @param matchingIds IDs of items whose names matched the search
+         * @param status      status to keep, or {@code null} for all
+         */
+        private LedgerRowFilter(Set<Integer> matchingIds, StockStatus status) {
+            this.matchingIds = matchingIds;
+            this.status = status;
+        }
+
+        /**
+         * Decides whether a row stays visible.
+         *
+         * @param entry the row being tested
+         * @return {@code true} if the row's item matched the search and has
+         *         the chosen status
+         */
+        @Override
+        public boolean include(Entry<? extends ItemTableModel, ? extends Integer> entry) {
+            Item item = entry.getModel().getItemAt(entry.getIdentifier());
+            return matchingIds.contains(item.getId())
+                    && (status == null || item.getStatus() == status);
         }
     }
 }

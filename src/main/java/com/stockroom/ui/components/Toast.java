@@ -21,12 +21,14 @@ import java.util.List;
 import javax.swing.JComponent;
 import javax.swing.JLayeredPane;
 import javax.swing.JRootPane;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
 /**
  * Short-lived notification styled as a printed receipt slip.
  *
- * <p>The toast slides up and fades in at the bottom-right of its window,
+ * <p>The toast slides up and fades in at the bottom-right of its window
+ * (or of an {@link #setAnchor(JComponent) anchor component}),
  * stays for about 2.5 seconds, then fades out. It looks like a till receipt:
  * a surface-coloured slip with a torn, zig-zag bottom edge, a small header
  * line with the time, a dashed rule, and the message beside a hand-drawn
@@ -65,6 +67,9 @@ public class Toast extends JComponent {
 
     /** Gap, in pixels, between the toast and the bottom edge of the window (clears the status bar). */
     private static final int MARGIN_BOTTOM = 44;
+
+    /** Gap, in pixels, between the toast and the edges of its anchor component. */
+    private static final int ANCHOR_INSET = 16;
 
     /** Horizontal padding, in pixels, inside the slip. */
     private static final int PAD_X = 18;
@@ -125,6 +130,9 @@ public class Toast extends JComponent {
 
     /** Mono font of the message text. */
     private final Font messageFont;
+
+    /** Component whose bottom-right corner the toast sits in, or {@code null} for the window corner. */
+    private JComponent anchor;
 
     /** Message, already wrapped into lines that fit the slip. */
     private List<String> lines = new ArrayList<>();
@@ -187,6 +195,18 @@ public class Toast extends JComponent {
      */
     public void showInfo(String message) {
         present(message, Kind.INFO);
+    }
+
+    /**
+     * Pins the toast to the bottom-right corner of a component instead of
+     * the window, so it never covers controls elsewhere (for example the
+     * error messages on a form).
+     *
+     * @param anchor the component whose bottom-right corner the toast sits
+     *               in, or {@code null} to use the window's corner
+     */
+    public void setAnchor(JComponent anchor) {
+        this.anchor = anchor;
     }
 
     /**
@@ -281,8 +301,14 @@ public class Toast extends JComponent {
             alpha = (float) Math.max(0, 1 - t);
             slideOffset = (int) Math.round(t * SLIDE_DISTANCE / 2.0);
         }
-        setLocation(layer.getWidth() - getWidth() - MARGIN_RIGHT,
-                layer.getHeight() - getHeight() - MARGIN_BOTTOM + slideOffset);
+        if (anchor != null && anchor.isShowing()) {
+            Rectangle area = SwingUtilities.convertRectangle(anchor.getParent(), anchor.getBounds(), layer);
+            setLocation(area.x + area.width - getWidth() - ANCHOR_INSET,
+                    area.y + area.height - getHeight() - ANCHOR_INSET + slideOffset);
+        } else {
+            setLocation(layer.getWidth() - getWidth() - MARGIN_RIGHT,
+                    layer.getHeight() - getHeight() - MARGIN_BOTTOM + slideOffset);
+        }
         repaint();
     }
 

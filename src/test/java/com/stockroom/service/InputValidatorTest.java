@@ -1,6 +1,7 @@
 package com.stockroom.service;
 
 import com.stockroom.exception.InvalidItemException;
+import com.stockroom.exception.InvalidItemException.Field;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -13,7 +14,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * cases TC2 and TC3.
  *
  * <p>Every assertion checks the exact message the user sees, because the
- * GUI shows the exception message as it is.</p>
+ * GUI shows the exception message as it is, and the {@link Field} the
+ * exception names, because the GUI uses it to put the message under the
+ * right input.</p>
  *
  * @author Arsal Saeed
  * @author Laiba Rehman
@@ -61,6 +64,55 @@ class InputValidatorTest {
     }
 
     /**
+     * An invalid threshold is rejected with a threshold message and is
+     * reported against the threshold field, so the GUI shows it under the
+     * threshold input rather than the quantity input.
+     */
+    @Test
+    @DisplayName("Invalid threshold is reported against the threshold field")
+    void invalidThresholdRejected() {
+        assertAll(
+                () -> assertThresholdRejected("-1", "Threshold cannot be negative."),
+                () -> assertThresholdRejected("x", "Threshold must be a whole number (e.g. 5)."),
+                () -> assertThresholdRejected("10001", "Threshold cannot exceed 10,000.")
+        );
+    }
+
+    /**
+     * An item ID for "Update by ID" accepts "7" and "#0007", and rejects
+     * blank, non-numeric, zero, negative and oversized input against the
+     * ID field.
+     *
+     * @throws InvalidItemException if a valid ID is rejected
+     */
+    @Test
+    @DisplayName("Update-by-ID input is parsed and validated")
+    void itemIdParsed() throws InvalidItemException {
+        assertEquals(7, InputValidator.parseId("7"));
+        assertEquals(7, InputValidator.parseId(" #0007 "));
+        assertAll(
+                () -> assertIdRejected("", "Item ID is required."),
+                () -> assertIdRejected("abc", "Item ID must be a whole number (e.g. 7)."),
+                () -> assertIdRejected("0", "Item ID must be a positive whole number (e.g. 7)."),
+                () -> assertIdRejected("-3", "Item ID must be a positive whole number (e.g. 7)."),
+                () -> assertIdRejected("99999999999", "Item ID must be a positive whole number (e.g. 7).")
+        );
+    }
+
+    /**
+     * Asserts that an item ID is rejected with an exact message.
+     *
+     * @param raw      the ID as typed
+     * @param expected the exact message expected
+     */
+    private static void assertIdRejected(String raw, String expected) {
+        InvalidItemException ex = assertThrows(InvalidItemException.class,
+                () -> InputValidator.parseId(raw));
+        assertEquals(expected, ex.getMessage(), "input: \"" + raw + "\"");
+        assertEquals(Field.ID, ex.getField(), "input: \"" + raw + "\"");
+    }
+
+    /**
      * Asserts that a name is rejected with an exact message.
      *
      * @param raw      the name as typed
@@ -70,6 +122,7 @@ class InputValidatorTest {
         InvalidItemException ex = assertThrows(InvalidItemException.class,
                 () -> InputValidator.validateName(raw));
         assertEquals(expected, ex.getMessage());
+        assertEquals(Field.NAME, ex.getField());
     }
 
     /**
@@ -82,5 +135,19 @@ class InputValidatorTest {
         InvalidItemException ex = assertThrows(InvalidItemException.class,
                 () -> InputValidator.parseQuantity(raw));
         assertEquals(expected, ex.getMessage(), "input: \"" + raw + "\"");
+        assertEquals(Field.QUANTITY, ex.getField(), "input: \"" + raw + "\"");
+    }
+
+    /**
+     * Asserts that a threshold is rejected with an exact message.
+     *
+     * @param raw      the threshold as typed
+     * @param expected the exact message expected
+     */
+    private static void assertThresholdRejected(String raw, String expected) {
+        InvalidItemException ex = assertThrows(InvalidItemException.class,
+                () -> InputValidator.parseThreshold(raw));
+        assertEquals(expected, ex.getMessage(), "input: \"" + raw + "\"");
+        assertEquals(Field.THRESHOLD, ex.getField(), "input: \"" + raw + "\"");
     }
 }

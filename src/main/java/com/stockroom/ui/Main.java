@@ -39,11 +39,13 @@ public final class Main {
     }
 
     /**
-     * Creates the inventory and the main window, and shows the window.
-     * Must be called on the event dispatch thread.
+     * Creates the inventory and the main window, shows the window and puts
+     * the cursor in the Item name field. Must be called on the event
+     * dispatch thread.
      */
     private static void createAndShowWindow() {
         InventoryGUI gui = new InventoryGUI(new InventoryManager());
         gui.setVisible(true);
+        gui.focusNewEntry();
     }
 }
