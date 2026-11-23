@@ -4,9 +4,12 @@ import com.stockroom.exception.DuplicateItemException;
 import com.stockroom.exception.InvalidItemException;
 import com.stockroom.exception.ItemNotFoundException;
 import com.stockroom.model.Item;
+import com.stockroom.model.StockReport;
 import com.stockroom.model.StockStatus;
+import com.stockroom.persistence.HtmlReportWriter;
 import com.stockroom.service.InputValidator;
 import com.stockroom.service.InventoryManager;
+import com.stockroom.service.ReportGenerator;
 import com.stockroom.ui.components.DashedRule;
 import com.stockroom.ui.components.EmptyStatePanel;
 import com.stockroom.ui.components.LedgerButton;
@@ -28,6 +31,7 @@ import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
@@ -41,6 +45,7 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -83,7 +88,7 @@ import javax.swing.table.TableRowSorter;
  *   <li>a manifest header with the "STOCKROOM" wordmark, the manifest line
  *       with today's date, and live TOTAL / LOW / OUT counters;</li>
  *   <li>on the left (about 68%), a toolbar with the search field, the status
- *       filter and VIEW ALL, above the ledger table. A {@link CardLayout}
+ *       filter, VIEW ALL and, below it, GENERATE REPORT, above the ledger table. A {@link CardLayout}
  *       swaps the table for an {@link EmptyStatePanel} when there is nothing
  *       to list;</li>
  *   <li>on the right (about 32%), the Entry Slip with the item form, its
@@ -156,7 +161,7 @@ public class InventoryGUI extends JFrame {
     private static final String MANIFEST_PREFIX = "INVENTORY MANIFEST · NO. 0001 · ";
 
     /** Keyboard hints shown on the left of the status bar. */
-    private static final String KEY_HINTS = "Ctrl+N new · Ctrl+F find · Del void · Esc clear";
+    private static final String KEY_HINTS = "Ctrl+N new · Ctrl+F find · Ctrl+R report · Del void · Esc clear";
 
     /** Path of the data file, shown on the right of the status bar. */
     private static final String DATA_FILE = "data/inventory.csv";
@@ -205,6 +210,15 @@ public class InventoryGUI extends JFrame {
 
     /** Button that clears search and filters and shows every item. */
     private final LedgerButton viewAllButton;
+
+    /** Button that writes an HTML stock summary report and opens it. */
+    private final LedgerButton reportButton;
+
+    /** Builds stock summary reports from {@link #manager}. */
+    private final ReportGenerator reportGenerator;
+
+    /** Saves stock summary reports as HTML files in the reports folder. */
+    private final HtmlReportWriter reportWriter;
 
     /** Numeral of the TOTAL counter. */
     private final JLabel totalCount;
@@ -272,6 +286,9 @@ public class InventoryGUI extends JFrame {
         searchField.setPlaceholder("FIND IN LEDGER…");
         statusFilter = new SegmentedToggle(FILTER_OPTIONS);
         viewAllButton = new LedgerButton("View all", LedgerButton.Variant.SECONDARY);
+        reportButton = new LedgerButton("Generate report", LedgerButton.Variant.SECONDARY);
+        reportGenerator = new ReportGenerator(manager);
+        reportWriter = new HtmlReportWriter();
 
         totalCount = createCounterNumeral();
         lowCount = createCounterNumeral();
@@ -474,7 +491,8 @@ public class InventoryGUI extends JFrame {
         searchField.setPreferredSize(new Dimension(SEARCH_WIDTH, searchField.getPreferredSize().height));
         searchField.setMinimumSize(searchField.getPreferredSize());
 
-        // Every toolbar control sits on one shared bottom line, like entries on a ruled page.
+        // The first-row controls sit on one shared bottom line, like entries on a ruled page;
+        // GENERATE REPORT sits on a second row under VIEW ALL.
         JPanel toolbar = new JPanel(new GridBagLayout());
         toolbar.setOpaque(false);
         toolbar.setBorder(new EmptyBorder(0, 0, 16, 0));
@@ -494,9 +512,15 @@ public class InventoryGUI extends JFrame {
         c.insets = new Insets(0, 0, 0, 0);
         toolbar.add(Box.createHorizontalGlue(), c);
 
+        // VIEW ALL and GENERATE REPORT share the right-hand column at the same width.
         c.gridx = 3;
         c.weightx = 0;
+        c.fill = GridBagConstraints.HORIZONTAL;
         toolbar.add(viewAllButton, c);
+
+        c.gridy = 1;
+        c.insets = new Insets(8, 0, 0, 0);
+        toolbar.add(reportButton, c);
 
         JScrollPane scroll = new JScrollPane(table);
         scroll.setBorder(BorderFactory.createEmptyBorder());
@@ -975,6 +999,7 @@ public class InventoryGUI extends JFrame {
         loadButton.addActionListener(this::onLoadById);
         idField.addActionListener(this::onLoadById);
         viewAllButton.addActionListener(this::onViewAll);
+        reportButton.addActionListener(this::onGenerateReport);
         statusFilter.addActionListener(this::onFilterChanged);
         searchField.getDocument().addDocumentListener(new SearchListener());
         table.getSelectionModel().addListSelectionListener(this::onSelectionChanged);
@@ -984,6 +1009,9 @@ public class InventoryGUI extends JFrame {
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
         getRootPane().registerKeyboardAction(this::onFind,
                 KeyStroke.getKeyStroke(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
+        getRootPane().registerKeyboardAction(this::onGenerateReport,
+                KeyStroke.getKeyStroke(KeyEvent.VK_R, InputEvent.CTRL_DOWN_MASK),
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
         getRootPane().registerKeyboardAction(this::onEscape,
                 KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
@@ -1272,6 +1300,55 @@ public class InventoryGUI extends JFrame {
             toast.showInfo("LEDGER EMPTY · NO ENTRIES ON FILE");
         } else {
             toast.showInfo("SHOWING ALL " + manager.size() + " ENTRIES");
+        }
+    }
+
+    /**
+     * Handles GENERATE REPORT and Ctrl+R: builds a stock summary report,
+     * saves it as an HTML file in the reports folder and opens it in the
+     * default browser, then shows a receipt toast with the file name. If the
+     * browser cannot be opened, the toast shows the full path instead. An
+     * empty inventory gives an error toast and no file.
+     *
+     * @param e the button or key event (not used)
+     */
+    private void onGenerateReport(ActionEvent e) {
+        if (manager.isEmpty()) {
+            toast.showError("NOTHING TO REPORT · LEDGER EMPTY");
+            return;
+        }
+        StockReport report = reportGenerator.generate();
+        Path file;
+        try {
+            file = reportWriter.write(report);
+        } catch (IOException ex) {
+            toast.showError("COULD NOT SAVE REPORT · " + HtmlReportWriter.DEFAULT_DIRECTORY + "/");
+            return;
+        }
+        if (openInBrowser(file)) {
+            toast.showSuccess("REPORT SAVED · " + file.getFileName());
+        } else {
+            toast.showSuccess("REPORT SAVED · " + file.toAbsolutePath());
+        }
+    }
+
+    /**
+     * Opens a file in the default browser through {@link Desktop}.
+     *
+     * @param file the file to open
+     * @return {@code true} if the browser was asked to open it; {@code false}
+     *         if browsing is not supported on this platform or failed
+     */
+    private static boolean openInBrowser(Path file) {
+        if (!Desktop.isDesktopSupported()
+                || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+            return false;
+        }
+        try {
+            Desktop.getDesktop().browse(file.toAbsolutePath().toUri());
+            return true;
+        } catch (IOException | SecurityException | UnsupportedOperationException ex) {
+            return false;
         }
     }
 

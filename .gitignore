@@ -6,6 +6,9 @@ out/
 # Runtime data (inventory CSV)
 data/
 
+# Generated stock summary reports
+reports/
+
 # IDE files
 .idea/
 *.iml

@@ -26,6 +26,9 @@ saved to a CSV file.
 - **Update items** by selecting a row, or by typing any ID into the **Update by ID** form. Unknown IDs and stale selections give a friendly "not found" message instead of an error.
 - **Delete items** through a confirmation dialog ("VOID ENTRY #0007?").
 - **Search and filter** by name ("FIND IN LEDGER…") and by status (ALL / IN / LOW / OUT).
+- **Stock summary report** with **GENERATE REPORT** (or Ctrl+R): saves a print-ready HTML page to
+  `reports/stock-report-yyyyMMdd-HHmm.html` and opens it in the browser. It shows totals, the items grouped
+  OUT / LOW / IN with unit subtotals, and a reorder list with suggested quantities of `(threshold × 2) − quantity`.
 
 **Stock status** is derived and never stored:
 
@@ -60,6 +63,7 @@ saved to a CSV file.
 | ------ | -------------------------------------- |
 | Ctrl+N | New entry                              |
 | Ctrl+F | Find in ledger                         |
+| Ctrl+R | Generate a stock summary report        |
 | Del    | Void (delete) the selected entry       |
 | Esc    | Clear the Entry Slip                   |
 | Enter  | Add / save from the Entry Slip         |
