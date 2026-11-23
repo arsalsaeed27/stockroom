@@ -43,6 +43,8 @@ import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -86,7 +88,8 @@ import javax.swing.table.TableRowSorter;
  * <p>The window has four regions:</p>
  * <ul>
  *   <li>a manifest header with the "STOCKROOM" wordmark, the manifest line
- *       with today's date, and live TOTAL / LOW / OUT counters;</li>
+ *       with today's date, live TOTAL / LOW / OUT counters and the DASHBOARD
+ *       button, which opens the {@link DashboardWindow};</li>
  *   <li>on the left (about 68%), a toolbar with the search field, the status
  *       filter, VIEW ALL and, below it, GENERATE REPORT, above the ledger table. A {@link CardLayout}
  *       swaps the table for an {@link EmptyStatePanel} when there is nothing
@@ -161,7 +164,8 @@ public class InventoryGUI extends JFrame {
     private static final String MANIFEST_PREFIX = "INVENTORY MANIFEST · NO. 0001 · ";
 
     /** Keyboard hints shown on the left of the status bar. */
-    private static final String KEY_HINTS = "Ctrl+N new · Ctrl+F find · Ctrl+R report · Del void · Esc clear";
+    private static final String KEY_HINTS =
+            "Ctrl+N new · Ctrl+F find · Ctrl+R report · Ctrl+D dashboard · Del void · Esc clear";
 
     /** Path of the data file, shown on the right of the status bar. */
     private static final String DATA_FILE = "data/inventory.csv";
@@ -219,6 +223,12 @@ public class InventoryGUI extends JFrame {
 
     /** Saves stock summary reports as HTML files in the reports folder. */
     private final HtmlReportWriter reportWriter;
+
+    /** Header button that opens the dashboard window. */
+    private final LedgerButton dashboardButton;
+
+    /** The open dashboard window, or {@code null} if none has been opened or it was closed. */
+    private DashboardWindow dashboard;
 
     /** Numeral of the TOTAL counter. */
     private final JLabel totalCount;
@@ -289,6 +299,7 @@ public class InventoryGUI extends JFrame {
         reportButton = new LedgerButton("Generate report", LedgerButton.Variant.SECONDARY);
         reportGenerator = new ReportGenerator(manager);
         reportWriter = new HtmlReportWriter();
+        dashboardButton = new LedgerButton("Dashboard", LedgerButton.Variant.SECONDARY);
 
         totalCount = createCounterNumeral();
         lowCount = createCounterNumeral();
@@ -365,6 +376,10 @@ public class InventoryGUI extends JFrame {
         JPanel countersWrap = new JPanel(new GridBagLayout());
         countersWrap.setOpaque(false);
         countersWrap.add(counters);
+        GridBagConstraints buttonConstraints = new GridBagConstraints();
+        buttonConstraints.gridx = 1;
+        buttonConstraints.insets = new Insets(0, 10, 0, 0);
+        countersWrap.add(dashboardButton, buttonConstraints);
 
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
@@ -1000,6 +1015,18 @@ public class InventoryGUI extends JFrame {
         idField.addActionListener(this::onLoadById);
         viewAllButton.addActionListener(this::onViewAll);
         reportButton.addActionListener(this::onGenerateReport);
+        dashboardButton.addActionListener(this::onOpenDashboard);
+        addWindowListener(new WindowAdapter() {
+            /**
+             * Closes the dashboard together with the main window.
+             *
+             * @param e the window event (not used)
+             */
+            @Override
+            public void windowClosing(WindowEvent e) {
+                closeDashboard();
+            }
+        });
         statusFilter.addActionListener(this::onFilterChanged);
         searchField.getDocument().addDocumentListener(new SearchListener());
         table.getSelectionModel().addListSelectionListener(this::onSelectionChanged);
@@ -1012,6 +1039,9 @@ public class InventoryGUI extends JFrame {
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
         getRootPane().registerKeyboardAction(this::onGenerateReport,
                 KeyStroke.getKeyStroke(KeyEvent.VK_R, InputEvent.CTRL_DOWN_MASK),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
+        getRootPane().registerKeyboardAction(this::onOpenDashboard,
+                KeyStroke.getKeyStroke(KeyEvent.VK_D, InputEvent.CTRL_DOWN_MASK),
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
         getRootPane().registerKeyboardAction(this::onEscape,
                 KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
@@ -1301,6 +1331,49 @@ public class InventoryGUI extends JFrame {
         } else {
             toast.showInfo("SHOWING ALL " + manager.size() + " ENTRIES");
         }
+    }
+
+    /**
+     * Handles DASHBOARD and Ctrl+D: opens the dashboard window, or brings
+     * the one already open to the front. Only one dashboard exists at a time.
+     *
+     * @param e the button or key event (not used)
+     */
+    private void onOpenDashboard(ActionEvent e) {
+        if (dashboard == null || !dashboard.isDisplayable()) {
+            dashboard = new DashboardWindow(manager, this::showStatusFilter, getIconImages());
+            dashboard.setLocationRelativeTo(this);
+        }
+        dashboard.showDashboard();
+    }
+
+    /**
+     * Closes the dashboard window if it is open.
+     */
+    private void closeDashboard() {
+        if (dashboard != null) {
+            dashboard.dispose();
+            dashboard = null;
+        }
+    }
+
+    /**
+     * Switches the ALL / IN / LOW / OUT filter to a status, re-filters the
+     * ledger and brings this window to the front. Used by the dashboard when
+     * a slice, a legend row or the chart's centre is clicked.
+     *
+     * @param status the status to show, or {@code null} to show every status
+     */
+    void showStatusFilter(StockStatus status) {
+        int index = status == null ? 0 : switch (status) {
+            case IN_STOCK -> 1;
+            case LOW_STOCK -> 2;
+            case OUT_OF_STOCK -> 3;
+        };
+        statusFilter.setSelectedIndex(index);
+        applyFilters();
+        toFront();
+        requestFocus();
     }
 
     /**

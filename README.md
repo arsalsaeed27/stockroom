@@ -29,6 +29,9 @@ saved to a CSV file.
 - **Stock summary report** with **GENERATE REPORT** (or Ctrl+R): saves a print-ready HTML page to
   `reports/stock-report-yyyyMMdd-HHmm.html` and opens it in the browser. It shows totals, the items grouped
   OUT / LOW / IN with unit subtotals, and a reorder list with suggested quantities of `(threshold × 2) − quantity`.
+- **Dashboard** with **DASHBOARD** (or Ctrl+D): a separate window with an animated donut chart of IN / LOW / OUT
+  items. It updates live as the ledger changes; hover a slice for details, click it to filter the ledger by that
+  status, or click the centre to show all. Esc closes it.
 
 **Stock status** is derived and never stored:
 
@@ -64,6 +67,7 @@ saved to a CSV file.
 | Ctrl+N | New entry                              |
 | Ctrl+F | Find in ledger                         |
 | Ctrl+R | Generate a stock summary report        |
+| Ctrl+D | Open the dashboard                     |
 | Del    | Void (delete) the selected entry       |
 | Esc    | Clear the Entry Slip                   |
 | Enter  | Add / save from the Entry Slip         |

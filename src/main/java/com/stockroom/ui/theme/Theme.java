@@ -79,6 +79,15 @@ public final class Theme {
     /** Status colour for {@link StockStatus#OUT_OF_STOCK}, also used for errors, {@code #A8322D}. */
     public static final Color STATUS_OUT = new Color(0xA8322D);
 
+    /** Warm chart colour for {@link StockStatus#IN_STOCK} on the dashboard: olive, {@code #7A8B3A}. */
+    public static final Color CHART_IN = new Color(0x7A8B3A);
+
+    /** Warm chart colour for {@link StockStatus#LOW_STOCK} on the dashboard: saffron, {@code #E0A030}. */
+    public static final Color CHART_LOW = new Color(0xE0A030);
+
+    /** Warm chart colour for {@link StockStatus#OUT_OF_STOCK} on the dashboard: brick red, {@code #B5452F}. */
+    public static final Color CHART_OUT = new Color(0xB5452F);
+
     /** Letter-spacing for small-caps mono labels, as a fraction of the font size. */
     public static final float TRACKING_LABEL = 0.12f;
 
@@ -235,6 +244,21 @@ public final class Theme {
             case IN_STOCK -> STATUS_IN;
             case LOW_STOCK -> STATUS_LOW;
             case OUT_OF_STOCK -> STATUS_OUT;
+        };
+    }
+
+    /**
+     * Returns the warm chart colour that belongs to a stock status, used by
+     * the dashboard's status chart.
+     *
+     * @param status the stock status
+     * @return the matching chart colour
+     */
+    public static Color chartColor(StockStatus status) {
+        return switch (status) {
+            case IN_STOCK -> CHART_IN;
+            case LOW_STOCK -> CHART_LOW;
+            case OUT_OF_STOCK -> CHART_OUT;
         };
     }
 
